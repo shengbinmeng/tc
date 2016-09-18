@@ -1,8 +1,8 @@
 #!/bin/bash
 
-DST_HOST=10.9.26.121
-DST_PORT=7012
-METHOD="htb"
+DST_IP_RANGE=10.9.26.121/32
+DST_PORT_RANGE="7012 0xffff" # u32 match
+METHOD="tbf"
 
 function finish {
   # Restore to system default
@@ -13,19 +13,19 @@ trap finish EXIT
 
 function init {
     echo "Init with rate limit of 990kbps (kbits per second)"
-    if [ ${METHOD} = "htb" ]; then
+    if [ ${METHOD} == "htb" ]; then
         # Add the new root qdisc
         tc qdisc replace dev eth0 root handle 1: htb
         tc class add dev eth0 parent 1: classid 1:1 htb rate 990kbit
         # Set our rate limit
-        tc filter add dev eth0 protocol ip parent 1:0 prio 1 u32 match ip dst ${DST_HOST} match ip dport ${DST_PORT} 0xffff flowid 1:1
-    fi
-    if [ ${METHOD} = "tbf" ]; then
+        tc filter add dev eth0 protocol ip parent 1:0 prio 1 u32 match ip dst ${DST_IP_RANGE} match ip dport ${DST_PORT_RANGE} flowid 1:1
+    elif [ ${METHOD} == "tbf" ]; then
         # See https://wiki.linuxfoundation.org/networking/netem
         tc qdisc replace dev eth0 root handle 1: prio
         tc qdisc add dev eth0 parent 1:3 handle 30: tbf rate 990kbit buffer 1600 limit 3000
-        tc qdisc add dev eth0 parent 30:1 handle 31: netem  delay 200ms 10ms distribution normal
-        tc filter add dev eth0 protocol ip parent 1:0 prio 3 u32 match ip dst ${DST_HOST} match ip dport ${DST_PORT} 0xffff flowid 1:3
+        # Add delay with netem (netem can also emulate packet loss, corrupt, reorder, etc)
+        tc qdisc add dev eth0 parent 30:1 handle 31: netem delay 100ms
+        tc filter add dev eth0 protocol ip parent 1:0 prio 3 u32 match ip dst ${DST_IP_RANGE} match ip dport ${DST_PORT_RANGE} flowid 1:3
     fi
     tc -s -d qdisc show dev eth0
     tc -s -d class show dev eth0
@@ -36,9 +36,8 @@ function limit_rate {
     echo "Limit rate to ${rate}kbps (kbits per second)"
     if [ ${METHOD} == "htb" ]; then
         tc class change dev eth0 parent 1: classid 1:1 htb rate ${rate}kbit
-    fi
-    if [ ${METHOD} == "tbf" ]; then
-        tc qdisc chasnge dev eth0 parent 1:3 handle 30: tbf rate ${rate}kbit buffer 1600 limit 3000
+    elif [ ${METHOD} == "tbf" ]; then
+        tc qdisc change dev eth0 parent 1:3 handle 30: tbf rate ${rate}kbit buffer 1600 limit 3000
     fi
     tc -s -d qdisc show dev eth0
     tc -s -d class show dev eth0
@@ -71,9 +70,9 @@ init
 # Simulate
 #
 # First wait for a while
-unit=20
+unit=60
 current=`date +"%s"`
-wait=$(($unit - $current % $unit + $unit))
+wait=$(($unit - $current % $unit))
 echo "$wait seconds before changing rate limit"
 sleep $wait
 
