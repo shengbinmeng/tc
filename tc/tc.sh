@@ -24,7 +24,7 @@ function init {
         tc qdisc replace dev eth0 root handle 1: prio
         tc qdisc add dev eth0 parent 1:3 handle 30: tbf rate 990kbit buffer 1600 limit 3000
         # Add delay with netem (netem can also emulate packet loss, corrupt, reorder, etc)
-        tc qdisc add dev eth0 parent 30:1 handle 31: netem delay 100ms
+        tc qdisc add dev eth0 parent 30:1 handle 31: netem delay 100ms loss 5%
         tc filter add dev eth0 protocol ip parent 1:0 prio 3 u32 match ip dst ${DST_IP_RANGE} match ip dport ${DST_PORT_RANGE} flowid 1:3
     fi
     tc -s -d qdisc show dev eth0
